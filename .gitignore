@@ -8,6 +8,7 @@
 *.so
 *.pkl
 *.txt
+*.pt
 
 # Packages #
 ############
@@ -51,4 +52,5 @@ share/**
 data_volume/**
 corpus/**
 share/**
+ro_basemodel_save/**
 __pycache__/**

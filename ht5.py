@@ -37,16 +37,16 @@ parser.add_argument('--has21_testdata', type=str, default='/home/shared_data/h/h
 
 parser.add_argument('--task_pref', type=str, default="binary classification: ", help='Task prefix')
 parser.add_argument('--datayear', type=str, default="2020", help='Data year')
-parser.add_argument('--taskno', type=str, default="2", help='Task Number')
+parser.add_argument('--taskno', type=str, default="1", help='Task Number')
 parser.add_argument('--savet', type=str, default='modelt5base_hasoc_task1a.pt', help='filename of the model checkpoint')
 parser.add_argument('--pikle', type=str, default='modelt5base_hasoc_task1a.pkl', help='pickle filename of the model checkpoint')
 parser.add_argument('--msave', type=str, default='t5basemodel_save/', help='folder to save the finetuned model')
-parser.add_argument('--ofile1', type=str, default='outputfile_task1.txt', help='output file')
-parser.add_argument('--ofile2', type=str, default='outputfile_task2.txt', help='output file')
+parser.add_argument('--ofile1', type=str, default='outputfile_', help='output file')
+parser.add_argument('--ofile2', type=str, default='outputfile_', help='output file')
 parser.add_argument('--submission1', type=str, default='submitfile_task1a.csv', help='submission file')
 parser.add_argument('--seed', type=int, default=1111, help='random seed')
 parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
-parser.add_argument('--epochs', type=int, default=2, help='upper epoch limit')
+parser.add_argument('--epochs', type=int, default=12, help='upper epoch limit')
 parser.add_argument('--batch_size', type=int, default=16, metavar='N', help='batch size') # smaller batch size for big model to fit GPU
 args = parser.parse_args()
 
@@ -209,7 +209,7 @@ if __name__ == '__main__':
     
     # get_data has the following args: (datatype, datayear='2020', combined_traindata=False)
     # datayear: 2020 or 2021;
-    traindata, devdata, testdata = get_data(args.datattype, args.datayear, combined_traindata=False)
+    traindata, devdata, testdata = get_data(args.datatype, args.datayear, combined_traindata=False)
     # Comment out the below if preprocessing not needed
     traindata = preprocess_pandas(traindata, list(traindata.columns))
     valdata = preprocess_pandas(devdata, list(devdata.columns))
@@ -217,7 +217,7 @@ if __name__ == '__main__':
 
     #Add task prefix for T5 better performance
     traindata['text'] = args.task_pref + traindata['text']
-    valdata['text'] = args.task_pref + traindata['text']
+    valdata['text'] = args.task_pref + valdata['text']
     test_data['text'] = args.task_pref + test_data['text']
 
     train_data = traindata['text'].values.tolist()
@@ -248,31 +248,25 @@ if __name__ == '__main__':
         #test_data['_id'] = test_data['_id'].apply(str)  # string conversion
         #test_ids = test_data['_id'].values.tolist()
         test_data_labels = test_data['task_1'].values.tolist()
-        outfile = args.ofile1
+        outfile = args.ofile1 + 'task1_'
 
     elif args.datatype == 'hasoc' and args.taskno == '2':
         possible_labels = traindata.task_2.unique()
         for index, possible_label in enumerate(possible_labels):
             label_dict[possible_label] = index
-        print(label_dict)       # for sanity check
+        print(label_dict)       # for sanity check {'NONE': 0, 'PRFN': 1, 'OFFN': 2, 'HATE': 3}
 
-        traindata['task_2'] = traindata.task_1.replace(label_dict)                 # replace labels with their nos
+        traindata['task_2'] = traindata.task_2.replace(label_dict)                 # replace labels with their nos
         traindata['task_2'] = traindata['task_2'].apply(str)  # string conversion
-        valdata['task_2'] = valdata.task_1.replace(label_dict)                 # replace labels with their nos
+        valdata['task_2'] = valdata.task_2.replace(label_dict)                 # replace labels with their nos
         valdata['task_2'] = valdata['task_2'].apply(str)  # string conversion
-        test_data['task_2'] = test_data.task_1.replace(label_dict)                 # replace labels with their nos
+        test_data['task_2'] = test_data.task_2.replace(label_dict)                 # replace labels with their nos
         test_data['task_2'] = test_data['task_2'].apply(str)  # string conversion
 
         train_tags = traindata['task_2'].values.tolist()
-
-        #valdata['_id'] = valdata['_id'].apply(str)    # string conversion
-        #val_ids = valdata['_id'].values.tolist()
         val_tags = valdata['task_2'].values.tolist()
-
-        #test_data['_id'] = test_data['_id'].apply(str)  # string conversion
-        #test_ids = test_data['_id'].values.tolist()
         test_data_labels = test_data['task_2'].values.tolist()
-        outfile = args.ofile2
+        outfile = args.ofile2 + 'task2_'
 
     scheduler = get_linear_schedule_with_warmup(optimizer, 
                                             num_warmup_steps=0,
@@ -288,16 +282,17 @@ if __name__ == '__main__':
         val_f1, val_f1_w, val_f1_mic = f1_score_func(predictions, true_vals)
         epoch_time_elapsed = time.time() - epoch_start_time
         print('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}') # metric_sc['f1']))        
-        with open(outfile, "a+") as f:
+        with open(outfile + 't5base.txt', "a+") as f:
             s = f.write('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}' + "\n")
         if not best_val_wf1 or val_f1_w > best_val_wf1:
             with open(args.savet, 'wb') as f:        # create file but deletes implicitly 1st if already exists
                 #No need to save the models for now so that they don't use up space 
                 #torch.save(model.state_dict(), f)    # save best model's learned parameters (based on lowest loss)
                 best_model = model
-                #model_to_save = model.module if hasattr(model, 'module') else model
-                #model_to_save.save_pretrained(args.msave)  # transformers save
-                #tokenizer.save_pretrained(args.msave)
+                if args.datatype == 'hasoc' and args.datayear == '2021':     # save model for hasoc 2021 inference
+                    model_to_save = model.module if hasattr(model, 'module') else model
+                    model_to_save.save_pretrained(args.msave)  # transformers save
+                    tokenizer.save_pretrained(args.msave)
 
             #with open(args.pikle, 'wb') as file:    # save the classifier as a pickle file
                 #pickle.dump(model, file)
@@ -309,5 +304,5 @@ if __name__ == '__main__':
         eval_loss, predictions, true_vals = evaluate(test_data_texts, test_data_labels) # test_ids added for Hasoc submission
         eval_f1, eval_f1_w, eval_f1_mic = f1_score_func(predictions, true_vals)
         print('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, micro F1: {eval_f1_mic}')       
-        with open(outfile, "a+") as f:
+        with open(outfile + 't5base.txt', "a+") as f:
             s = f.write('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, micro F1: {eval_f1_mic}' + "\n")

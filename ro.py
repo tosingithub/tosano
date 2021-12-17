@@ -20,12 +20,12 @@ from transformers import RobertaTokenizer, RobertaForSequenceClassification, Ada
 parser = argparse.ArgumentParser(description='Hate Speech Model')
 parser.add_argument('--savet', type=str, default='modelrobertabase_hasoc_task1a.pt', help='filename of the model checkpoint')
 parser.add_argument('--pikle', type=str, default='modelrobertabase_hasoc_task1a.pkl', help='pickle filename of the model checkpoint')
-parser.add_argument('--ofile1', type=str, default='outputfile_task1a.txt', help='output file')
+parser.add_argument('--ofile1', type=str, default='outputfile_', help='output file')
 parser.add_argument('--submission1', type=str, default='submitfile_task1a.csv', help='submission file')
 parser.add_argument('--seed', type=int, default=1111, help='random seed')
 parser.add_argument('--lr', type=float, default=0.00001, help='initial learning rate')
-parser.add_argument('--epochs', type=int, default=2, help='upper epoch limit')
-parser.add_argument('--batch_size', type=int, default=64, metavar='N', help='batch size')
+parser.add_argument('--epochs', type=int, default=1, help='upper epoch limit')
+parser.add_argument('--batch_size', type=int, default=32, metavar='N', help='batch size')
 parser.add_argument('--maxlen', type=int, default=256, help='maximum length')
 args = parser.parse_args()
 
@@ -33,7 +33,7 @@ args = parser.parse_args()
 def f1_score_func(preds, labels):
     preds_flat = np.argmax(preds, axis=1).flatten()
     labels_flat = labels.flatten()
-    return f1_score(labels_flat, preds_flat, average=None), f1_score(labels_flat, preds_flat, average="weighted")
+    return f1_score(labels_flat, preds_flat, average=None), f1_score(labels_flat, preds_flat, average="weighted"), f1_score(labels_flat, preds_flat, average="micro")
 
 def accuracy_score_func(preds, labels):
     preds_flat = np.argmax(preds, axis=1).flatten()
@@ -63,26 +63,18 @@ def train(dataloader_train):
         optimizer.step()
         scheduler.step()
             
-            #progress_bar.set_postfix({'training_loss': '{:.3f}'.format(loss.item()/len(batch))})
-        #print("Saving the model.... ")
-        #torch.save(model.state_dict(), f'data_volume/finetuned_BERT_epoch_{epoch}.model')
-        #tqdm.write(f'\nEpoch {epoch}')
     loss_train_avg = loss_train_total/len(dataloader_train)
-        #tqdm.write(f'Training loss: {loss_train_avg}')
     return loss_train_avg
 
 
 def evaluate(dataloader_val):
     print("Evaluation...")
     model.eval()
-        
     loss_val_total = 0
     predictions, true_vals = [], []
         
     for batch in dataloader_val:
-            
         batch = tuple(b.to(device) for b in batch)
-            
         inputs = {'input_ids':      batch[0],
                     'attention_mask': batch[1],
                     'labels':         batch[2],
@@ -90,11 +82,9 @@ def evaluate(dataloader_val):
 
         with torch.no_grad():        
                 outputs = model(**inputs)
-
-        loss = outputs[0]
-        logits = outputs[1]
+        loss, logits = outputs[:2]
+        #logits = outputs[1]
         loss_val_total += loss.item()
-
         logits = logits.detach().cpu().numpy()
         label_ids = inputs['labels'].cpu().numpy()
         predictions.append(logits)
@@ -103,7 +93,6 @@ def evaluate(dataloader_val):
     loss_val_avg = loss_val_total/len(dataloader_val)
     predictions = np.concatenate(predictions, axis=0)
     true_vals = np.concatenate(true_vals, axis=0)
-
     return loss_val_avg, predictions, true_vals
 
 
@@ -194,24 +183,32 @@ if __name__=="__main__":
     best_model = None
     for epoch in range(1, args.epochs + 1):
         epoch_start_time = time.time()
-        train_loss = train(train_data, train_tags)
-        val_loss, predictions, true_vals = evaluate(val_data, val_tags) # val_ids added for Hasoc submission
+        train_loss = train(dataloader_train)
+        val_loss, predictions, true_vals = evaluate(dataloader_validation)
         val_f1, val_f1_w, val_f1_mic = f1_score_func(predictions, true_vals)
         epoch_time_elapsed = time.time() - epoch_start_time
-        print('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}') # metric_sc['f1']))        
-        with open(args.ofile1, "a+") as f:
+        print('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}')       
+        with open(args.ofile1 + 'roberta.txt', "a+") as f:
             s = f.write('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}' + "\n")
         if not best_val_wf1 or val_f1_w > best_val_wf1:
-            with open(args.savet, 'wb') as f:        # create file but deletes implicitly 1st if already exists
-                torch.save(model.state_dict(), f)    # save best model's learned parameters (based on lowest loss)
+            with open(args.savet, 'wb') as f:           # We do not need to save models for now
+                #torch.save(model.state_dict(), f)    # save best model's learned parameters (based on lowest loss)
                 best_model = model
-                model_to_save = model.module if hasattr(model, 'module') else model
-                model_to_save.save_pretrained('t5basemodel_save/')  # transformers save
-                tokenizer.save_pretrained('t5basemodel_save/')
+                #model_to_save = model.module if hasattr(model, 'module') else model
+                #model_to_save.save_pretrained('ro_basemodel_save/')  # transformers save
+                #tokenizer.save_pretrained('ro_basemodel_save/')
 
-            with open(args.pikle, 'wb') as file:    # save the classifier as a pickle file
-                pickle.dump(model, file)
+            #with open(args.pikle, 'wb') as file:    # save the classifier as a pickle file
+                #pickle.dump(model, file)
             best_val_wf1 = val_f1_w
+    
+    # Evaluate test set
+    model = best_model
+    eval_loss, predictions, true_vals = evaluate(dataloader_test) # test_ids added for Hasoc submission
+    eval_f1, eval_f1_w, eval_f1_mic = f1_score_func(predictions, true_vals)
+    print('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, micro F1: {eval_f1_mic}')       
+    with open(args.ofile1 + 'roberta.txt', "a+") as f:
+        s = f.write('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, micro F1: {eval_f1_mic}' + "\n")
 
     # inputs = tokenizer("Hello, my dog is cute", return_tensors="pt")
     # labels = torch.tensor([1]).unsqueeze(0)  # Batch size 1
