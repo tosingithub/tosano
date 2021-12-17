@@ -236,18 +236,13 @@ if __name__ == '__main__':
         traindata['task_1'] = traindata['task_1'].apply(str)  # string conversion
         valdata['task_1'] = valdata.task_1.replace(label_dict)                 # replace labels with their nos
         valdata['task_1'] = valdata['task_1'].apply(str)  # string conversion
-        test_data['task_1'] = test_data.task_1.replace(label_dict)                 # replace labels with their nos
-        test_data['task_1'] = test_data['task_1'].apply(str)  # string conversion
+        if args.datatype == 'hasoc' and not args.datayear == '2021':            # we'll do 2021 inference on testset elsewhere
+            test_data['task_1'] = test_data.task_1.replace(label_dict)                 # replace labels with their nos
+            test_data['task_1'] = test_data['task_1'].apply(str)  # string conversion
+            test_data_labels = test_data['task_1'].values.tolist()
 
         train_tags = traindata['task_1'].values.tolist()
-
-        #valdata['_id'] = valdata['_id'].apply(str)    # string conversion
-        #val_ids = valdata['_id'].values.tolist()
         val_tags = valdata['task_1'].values.tolist()
-
-        #test_data['_id'] = test_data['_id'].apply(str)  # string conversion
-        #test_ids = test_data['_id'].values.tolist()
-        test_data_labels = test_data['task_1'].values.tolist()
         outfile = args.ofile1 + 'task1_'
 
     elif args.datatype == 'hasoc' and args.taskno == '2':
@@ -260,12 +255,13 @@ if __name__ == '__main__':
         traindata['task_2'] = traindata['task_2'].apply(str)  # string conversion
         valdata['task_2'] = valdata.task_2.replace(label_dict)                 # replace labels with their nos
         valdata['task_2'] = valdata['task_2'].apply(str)  # string conversion
-        test_data['task_2'] = test_data.task_2.replace(label_dict)                 # replace labels with their nos
-        test_data['task_2'] = test_data['task_2'].apply(str)  # string conversion
+        if args.datatype == 'hasoc' and not args.datayear == '2021':            # we'll do 2021 inference on testset elsewhere
+            test_data['task_2'] = test_data.task_2.replace(label_dict)                 # replace labels with their nos
+            test_data['task_2'] = test_data['task_2'].apply(str)  # string conversion
+            test_data_labels = test_data['task_2'].values.tolist()
 
         train_tags = traindata['task_2'].values.tolist()
         val_tags = valdata['task_2'].values.tolist()
-        test_data_labels = test_data['task_2'].values.tolist()
         outfile = args.ofile2 + 'task2_'
 
     scheduler = get_linear_schedule_with_warmup(optimizer, 
