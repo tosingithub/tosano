@@ -1,1 +1,1 @@
-# Tosano
+# Collaboration on Hate Speech Classification
