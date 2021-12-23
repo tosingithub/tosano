@@ -30,6 +30,7 @@ zip
 *.sqlite
 *.model
 *.cfg
+*.csv
 
 # OS generated files #
 ######################
@@ -53,4 +54,7 @@ data_volume/**
 corpus/**
 share/**
 ro_basemodel_save/**
+t5basemodel_save/**
+t5basemodel_save_02_821/**
+robasemodel_save/**
 __pycache__/**

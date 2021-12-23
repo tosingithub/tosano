@@ -7,7 +7,7 @@ import pandas as pd
 
 parser = argparse.ArgumentParser(description='Hate Speech Model')
 # the modeldir line below should point to the folder where the model for the competition is saved
-parser.add_argument('--modeldir', type=str, default='/home/oluade/e_hsp/t5basemodel_save', help='directory of the model checkpoint')
+parser.add_argument('--modeldir', type=str, default='/home/oluade/e_tosano/t5basemodel_save', help='directory of the model checkpoint')
 #parser.add_argument('--testdata', type=str, default='english_dataset/hasoc2019_en_test-2919.tsv', help='location of the test data')
 #parser.add_argument('--testdata2', type=str, default='English_2020/hasoc_2020_en_test_new.xlsx', help='location of the test data 2')
 parser.add_argument('--has21_traindata', type=str, default='/home/shared_data/h/has21_traindata.csv', help='location of the training data')
