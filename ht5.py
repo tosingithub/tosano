@@ -15,6 +15,7 @@ import time
 import pickle
 import numpy as np
 import re
+#import utility_hs as util
 
 
 # commandline arguments
@@ -36,7 +37,7 @@ parser.add_argument('--has21_testdata', type=str, default='/home/shared_data/h/h
 # Additional datasets
 
 parser.add_argument('--task_pref', type=str, default="binary classification: ", help='Task prefix')
-parser.add_argument('--datayear', type=str, default="2020", help='Data year')
+parser.add_argument('--datayear', type=str, default="2021", help='Data year')
 parser.add_argument('--taskno', type=str, default="1", help='Task Number')
 parser.add_argument('--savet', type=str, default='modelt5base_hasoc_task1a.pt', help='filename of the model checkpoint')
 parser.add_argument('--pikle', type=str, default='modelt5base_hasoc_task1a.pkl', help='pickle filename of the model checkpoint')
@@ -45,7 +46,7 @@ parser.add_argument('--ofile1', type=str, default='outputfile_', help='output fi
 parser.add_argument('--ofile2', type=str, default='outputfile_', help='output file')
 parser.add_argument('--submission1', type=str, default='submitfile_task1a.csv', help='submission file')
 parser.add_argument('--seed', type=int, default=1111, help='random seed')
-parser.add_argument('--lr', type=float, default=0.0001, help='initial learning rate')
+parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate') # bestloss at 0.0002; dpred- 1; weighted F1: 0.9386351943374753, micro F1: 0.9376623376623376; test #weighted F1: 0.8210865645981863, micro F1: 0.8227946916471507
 parser.add_argument('--epochs', type=int, default=12, help='upper epoch limit')
 parser.add_argument('--batch_size', type=int, default=16, metavar='N', help='batch size') # smaller batch size for big model to fit GPU
 args = parser.parse_args()
@@ -72,9 +73,33 @@ def preprocess_pandas(data, columns):
     return df_
     
 
+def data_augment(data, columns, type='drop'):
+    """
+    types: drop, replace, generate
+
+    1st type: delete 2 tokens
+    get rows from (rows, labels) > 5 tokens
+    if the 1st & last tokens != ['HOF words'] then drop them
+    Add these new (rows, labels) to the training data
+
+    2nd type: replace 2 tokens
+    get rows from (rows, labels) > 2 tokens
+    if the 1st & last tokens != ['HOF words'] then replace them using contextual embeddings
+    Add these new (rows, labels) to the training data
+
+    3rd type: add 2 new tokens
+    for all (rows, labels) add 2 tokens at the end
+    if any of the 2 tokens == ['HOF words'] then change label appropriately
+    Add these new (rows, labels) to the training data
+    """
+    df_ = pd.DataFrame(columns=columns)
+    df_ = data
+
+    return df_
+
 def f1_score_func(preds, labels):
     preds_flat = []
-    preds_flat_ = ['0' if a == '' or len(a) > 1 else a for a in preds]   # get rid of empty & lengthy predictions
+    preds_flat_ = ['1' if a == '' or len(a) > 1 else a for a in preds]   # get rid of empty & lengthy predictions
     preds_flat.extend(preds_flat_)
     return f1_score(labels, preds_flat, average=None), f1_score(labels, preds_flat, average="weighted"), f1_score(labels, preds_flat, average="micro")
 
@@ -270,6 +295,7 @@ if __name__ == '__main__':
 
 
     best_val_wf1 = None
+    best_loss = None
     best_model = None
     for epoch in range(1, args.epochs + 1):
         epoch_start_time = time.time()
@@ -281,6 +307,7 @@ if __name__ == '__main__':
         with open(outfile + 't5base.txt', "a+") as f:
             s = f.write('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}' + "\n")
         if not best_val_wf1 or val_f1_w > best_val_wf1:
+        #if not best_loss or val_loss < best_loss:
             with open(args.savet, 'wb') as f:        # create file but deletes implicitly 1st if already exists
                 #No need to save the models for now so that they don't use up space 
                 #torch.save(model.state_dict(), f)    # save best model's learned parameters (based on lowest loss)
@@ -293,6 +320,7 @@ if __name__ == '__main__':
             #with open(args.pikle, 'wb') as file:    # save the classifier as a pickle file
                 #pickle.dump(model, file)
             best_val_wf1 = val_f1_w
+            #best_loss = val_loss
     
     # Hasoc 2021 test set will be run according to Hasoc format in order to prepare, so...
     if args.datatype == 'hasoc' and not args.datayear == '2021':
