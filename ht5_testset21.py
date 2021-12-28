@@ -4,12 +4,12 @@ import argparse
 from sklearn.metrics import f1_score, confusion_matrix, accuracy_score
 import pandas as pd
 import re
-#import utility_hs as util
+import utility_hs as util
 
 
 parser = argparse.ArgumentParser(description='Hate Speech Model')
 # the modeldir line below should point to the folder where the model for the competition is saved
-parser.add_argument('--modeldir', type=str, default='/home/oluade/e_hsp/t5basemodel_save', help='directory of the model checkpoint')
+parser.add_argument('--modeldir', type=str, default='/home/oluade/e_tosano/t5basemodel_save', help='directory of the model checkpoint')
 #parser.add_argument('--modeldir', type=str, default='/home/oluade/e_tosano/robasemodel_save', help='directory of the model checkpoint')
 
 #parser.add_argument('--testdata2', type=str, default='English_2020/hasoc_2020_en_test_new.xlsx', help='location of the test data 2')
@@ -31,28 +31,6 @@ def f1_score_func(preds, labels):
     return f1_score(labels, preds_flat, average=None), f1_score(labels, preds_flat, average="weighted"), f1_score(labels, preds_flat, average="micro")
 
 
-def preprocess_pandas(data, columns):
-    ''' <data> is a dataframe which contain  a <text> column  '''
-    df_ = pd.DataFrame(columns=columns)
-    df_ = data
-    df_['text'] = data['text'].replace('[a-zA-Z0-9-_.]+@[a-zA-Z0-9-_.]+', '', regex=True)                      # remove emails
-    df_['text'] = data['text'].replace('((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4}', '', regex=True)    # remove IP address
-    df_['text'] = data['text'].replace(r'http\S+', '', regex=True).replace(r'www\S+', '', regex=True)          # remove URLs
-    df_['text'] = data['text'].str.replace('[#,@,&,<,>,\,/,-]','')                                             # remove special characters
-    df_['text'] = data['text'].str.replace('[^\w\s#@/:%.,_-]', '', flags=re.UNICODE)                           # remove emojis+
-    df_['text'] = data['text'].str.replace('[','')
-    df_['text'] = data['text'].str.replace(']','')
-    df_['text'] = data['text'].str.replace('\n', ' ')
-    df_['text'] = data['text'].str.replace('\t', ' ')
-    df_['text'] = data['text'].str.replace(' {2,}', ' ', regex=True)                                           # remove 2 or more spaces
-    df_['text'] = data['text'].str.lower()
-    df_['text'] = data['text'].str.strip()
-    df_['text'] = data['text'].replace('\d', '', regex=True)                                                   # remove numbers
-    df_.drop_duplicates(subset=['text'], keep='first')
-    df_.dropna()
-    return df_
-
-
 if __name__=="__main__":
     tokenizer = T5Tokenizer.from_pretrained(args.modeldir)
     model = T5ForConditionalGeneration.from_pretrained(args.modeldir)
@@ -60,7 +38,7 @@ if __name__=="__main__":
     traindata = pd.read_csv(args.has21_traindata)
     test_data = pd.read_csv(args.has21_testdata)
     test_data3gt = pd.read_csv(args.testdata3gt)
-    test_data = preprocess_pandas(test_data, list(test_data.columns))
+    test_data = util.preprocess_pandas(test_data, list(test_data.columns))
     test_data['text'] = args.task_pref + test_data['text']
     predictions, tvals = [], []
     if not 'prediction' in test_data.columns:

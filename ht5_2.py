@@ -93,19 +93,13 @@ def data_augment(data, columns, type='drop'):
     """
     df_ = pd.DataFrame(columns=columns)
     df_ = data
-    #df_['text'] = data['text']
-    #df_['text'] = data['text'].str.split().str[1:-1]        # drop the 1st & last words
     for rno in range(len(df_['text'])):
-        #print(data['text'].str.split().str[0])
         picksent = data['text'][rno].split()
-        #print("Picksent ", picksent)
-        if picksent[0] == 'fanaticaldreame':
-            df_['text'][rno] = data['text'][rno]
-        else:
-            df_['text'][rno] = ' '.join(picksent[1:-1])
-
-        #df_.loc[(data['text'] == data['text'][rno]) & (data['text'].str.split().str[0] == 'fanaticaldreame'), 'text'] = data['text'][rno].split()  # | (data['text'].str.split().str[len(data['text'].str.split())] == 'bitch')
-        #df_.loc[(data['text'] == data['text'][rno]) & (data['text'].str.split().str[0] != 'fanaticaldreame'), 'text'] = data['text'].str.split().str[1:-1]  # | (data['text'].str.split().str[len(data['text'].str.split())] == 'bitch')
+        if len(picksent) > 4:                   # we wish to have at least 3 words left after removing 2
+            if picksent[0] in ['fanaticaldreame','bitch'] or picksent[len(picksent)-1] in ['fanaticaldreame','bitch']:
+                df_['text'][rno] = data['text'][rno]
+            else:
+                df_['text'][rno] = ' '.join(picksent[1:-1])
 
     return df_
 
@@ -251,10 +245,13 @@ if __name__ == '__main__':
     traindata = preprocess_pandas(traindata, list(traindata.columns))
     valdata = preprocess_pandas(devdata, list(devdata.columns))
     test_data = preprocess_pandas(testdata, list(testdata.columns))
-    traindata = traindata[:10]
+    #traindata = traindata[:10]
 
+    print(traindata['task_1'].value_counts()) # check data inbalance
     print(traindata['text'][:5])
     traindata = data_augment(traindata, list(traindata.columns))
+    traindata.to_csv(args.datatype + args.datayear + 'augmented_train.csv', index=False)
+    print(traindata['task_1'].value_counts()) # check data inbalance
     print(traindata['text'][:5])
 
 

@@ -15,7 +15,7 @@ import time
 import pickle
 import numpy as np
 import re
-#import utility_hs as util
+import utility_hs as util
 
 
 # commandline arguments
@@ -23,7 +23,8 @@ import re
 to equality e.g. traindata = "english_dataset/english_dataset.tsv" and then remove args. where applicable
 """
 parser = argparse.ArgumentParser(description='Hate Speech Model')
-# --datatype: hasoc, ...
+# --datatype: hasoc, trol, sema, semb, hos, olid (--olidtask = a, b or c)
+# USAGE EXAMPLE in the terminal: python ht5.py --datatype trol
 parser.add_argument('--datatype', type=str, default='hasoc', help='data of choice')
 parser.add_argument('--has19_traindata', type=str, default='/home/shared_data/h/has19_traindata.csv', help='location of the training data')
 parser.add_argument('--has19_devdata', type=str, default='/home/shared_data/h/has19_devdata.csv', help='location of the dev data')
@@ -34,11 +35,14 @@ parser.add_argument('--has20_testdata', type=str, default='/home/shared_data/h/h
 parser.add_argument('--has21_traindata', type=str, default='/home/shared_data/h/has21_traindata.csv', help='location of the training data')
 parser.add_argument('--has21_devdata', type=str, default='/home/shared_data/h/has21_devdata.csv', help='location of the dev data')
 parser.add_argument('--has21_testdata', type=str, default='/home/shared_data/h/has21_testdata.csv', help='location of the test data')
-# Additional datasets
+# Trolling & Aggression
+parser.add_argument('--trol_traindata', type=str, default='/home/shared_data/h/eng_trolling_agression/trac2_eng_train.csv', help='location of the training data')
+parser.add_argument('--trol_devdata', type=str, default='/home/shared_data/h/eng_trolling_agression/trac2_eng_dev.csv', help='location of the dev data')
 
-parser.add_argument('--task_pref', type=str, default="binary classification: ", help='Task prefix')
-parser.add_argument('--datayear', type=str, default="2021", help='Data year')
-parser.add_argument('--taskno', type=str, default="1", help='Task Number')
+parser.add_argument('--task_pref', type=str, default="classification: ", help='Task prefix')
+parser.add_argument('--datayear', type=str, default="2021", help='Data year')           # 2020 or 2021
+parser.add_argument('--taskno', type=str, default="1", help='Task Number')              # 1 or 2
+parser.add_argument('--olidtask', type=str, default="a", help='Task Alphabet')      # a, b or c
 parser.add_argument('--savet', type=str, default='modelt5base_hasoc_task1a.pt', help='filename of the model checkpoint')
 parser.add_argument('--pikle', type=str, default='modelt5base_hasoc_task1a.pkl', help='pickle filename of the model checkpoint')
 parser.add_argument('--msave', type=str, default='t5basemodel_save/', help='folder to save the finetuned model')
@@ -47,61 +51,19 @@ parser.add_argument('--ofile2', type=str, default='outputfile_', help='output fi
 parser.add_argument('--submission1', type=str, default='submitfile_task1a.csv', help='submission file')
 parser.add_argument('--seed', type=int, default=1111, help='random seed')
 parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate') # bestloss at 0.0002; dpred- 1; weighted F1: 0.9386351943374753, micro F1: 0.9376623376623376; test #weighted F1: 0.8210865645981863, micro F1: 0.8227946916471507
-parser.add_argument('--epochs', type=int, default=12, help='upper epoch limit')
+# task_pref: classification
+# bestloss at 0.0002; Validation Loss: 0.1557 weighted F1: 0.9589171159419094, micro F1: 0.958441558441558; test: F1: [0.87049083 0.74856487], weighted F1: 0.824518748338588, micro F1: 0.8290398126463701
+parser.add_argument('--epochs', type=int, default=6, help='upper epoch limit')
 parser.add_argument('--batch_size', type=int, default=16, metavar='N', help='batch size') # smaller batch size for big model to fit GPU
 args = parser.parse_args()
 
-def preprocess_pandas(data, columns):
-    ''' <data> is a dataframe which contain  a <text> column  '''
-    df_ = pd.DataFrame(columns=columns)
-    df_ = data
-    df_['text'] = data['text'].replace('[a-zA-Z0-9-_.]+@[a-zA-Z0-9-_.]+', '', regex=True)                      # remove emails
-    df_['text'] = data['text'].replace('((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.|$)){4}', '', regex=True)    # remove IP address
-    df_['text'] = data['text'].replace(r'http\S+', '', regex=True).replace(r'www\S+', '', regex=True)          # remove URLs
-    df_['text'] = data['text'].str.replace('[#,@,&,<,>,\,/,-]','')                                             # remove special characters
-    df_['text'] = data['text'].str.replace('[^\w\s#@/:%.,_-]', '', flags=re.UNICODE)                           # remove emojis+
-    df_['text'] = data['text'].str.replace('[','')
-    df_['text'] = data['text'].str.replace(']','')
-    df_['text'] = data['text'].str.replace('\n', ' ')
-    df_['text'] = data['text'].str.replace('\t', ' ')
-    df_['text'] = data['text'].str.replace(' {2,}', ' ', regex=True)                                           # remove 2 or more spaces
-    df_['text'] = data['text'].str.lower()
-    df_['text'] = data['text'].str.strip()
-    df_['text'] = data['text'].replace('\d', '', regex=True)                                                   # remove numbers
-    df_.drop_duplicates(subset=['text'], keep='first')
-    df_.dropna()
-    return df_
-    
-
-def data_augment(data, columns, type='drop'):
-    """
-    types: drop, replace, generate
-
-    1st type: delete 2 tokens
-    get rows from (rows, labels) > 5 tokens
-    if the 1st & last tokens != ['HOF words'] then drop them
-    Add these new (rows, labels) to the training data
-
-    2nd type: replace 2 tokens
-    get rows from (rows, labels) > 2 tokens
-    if the 1st & last tokens != ['HOF words'] then replace them using contextual embeddings
-    Add these new (rows, labels) to the training data
-
-    3rd type: add 2 new tokens
-    for all (rows, labels) add 2 tokens at the end
-    if any of the 2 tokens == ['HOF words'] then change label appropriately
-    Add these new (rows, labels) to the training data
-    """
-    df_ = pd.DataFrame(columns=columns)
-    df_ = data
-
-    return df_
 
 def f1_score_func(preds, labels):
     preds_flat = []
     preds_flat_ = ['1' if a == '' or len(a) > 1 else a for a in preds]   # get rid of empty & lengthy predictions
     preds_flat.extend(preds_flat_)
-    return f1_score(labels, preds_flat, average=None), f1_score(labels, preds_flat, average="weighted"), f1_score(labels, preds_flat, average="micro")
+    labels_flat = labels            # only for consistency
+    return f1_score(labels_flat, preds_flat, average=None), f1_score(labels_flat, preds_flat, average="weighted"), f1_score(labels_flat, preds_flat, average="micro")
 
 # def accuracy_score_func(preds, labels):
 #     preds_flat = np.argmax(preds, axis=1).flatten()
@@ -109,10 +71,15 @@ def f1_score_func(preds, labels):
 #     return accuracy_score(labels_flat, preds_flat, normalize='False')
 
 def confusion_matrix_func(preds, labels):
+    #if args.datatype == 'hasoc':
     preds_flat = []
-    preds_flat_ = ['0' if a == '' or len(a) > 1 else a for a in preds]   # get rid of empty & lengthy predictions
+    preds_flat_ = ['1' if a == '' or len(a) > 1 else a for a in preds]   # get rid of empty & lengthy predictions
     preds_flat.extend(preds_flat_)
-    print(confusion_matrix(labels, preds_flat))
+    labels_flat = labels
+    # else:
+    #     preds_flat = np.argmax(preds, axis=1).flatten()
+    #     labels_flat = labels.flatten()
+    print(confusion_matrix(labels_flat, preds_flat))
 
 
 def train(train_data, train_tags):
@@ -184,38 +151,6 @@ def evaluate(val_data, val_tags):
     epoch_loss = val_loss / val_steps
     return epoch_loss, predictions, true_vals
 
-def get_data(datatype, datayear='2020', combined_traindata=False):
-    """ Select the dataset to use """
-    if datatype == 'hasoc':
-        if not combined_traindata:
-            if datayear == '2020':
-                data1 = pd.read_csv(args.has20_traindata)
-                data2 = pd.read_csv(args.has20_devdata)
-                data3 = pd.read_csv(args.has20_testdata)
-                traindata, devdata, testdata = data1, data2, data3
-            else:
-                data1 = pd.read_csv(args.has21_traindata)
-                data2 = pd.read_csv(args.has21_devdata)
-                data3 = pd.read_csv(args.has21_testdata)
-                traindata, devdata, testdata = data1, data2, data3
-        else:
-            data1a = pd.read_csv(args.has19_traindata)
-            data2b = pd.read_csv(args.has19_devdata)
-            data1aa = pd.read_csv(args.has20_traindata)
-            data2bb = pd.read_csv(args.has20_devdata)
-            data1aaa = pd.read_csv(args.has21_traindata)
-            data2bbb = pd.read_csv(args.has21_devdata)
-            traindata, devdata = pd.concat([data1a, data1aa, data1aaa]), pd.concat([data2b, data2bb, data2bbb])
-            if datayear == '2020':
-                testdata = pd.read_csv(args.has20_testdata)
-            else:
-                testdata = pd.read_csv(args.has21_testdata)
-            
-    elif datatype =='hateval':
-        data1 = pd.read_csv(args.has19_traindata)
-    else:
-        data1 = pd.read_csv(args.has19_traindata)
-    return traindata.drop_duplicates(keep='first'), devdata.drop_duplicates(keep='first'), testdata.drop_duplicates(keep='first')
 
 # def random_seeding(seed_value, device):                           # set for reproducibility
 #     #numpy.random.seed(seed_value)
@@ -232,23 +167,40 @@ if __name__ == '__main__':
     tokenizer.pad_token = tokenizer.eos_token # to avoid an error
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) #, betas=(0.7, 0.99))
     
-    # get_data has the following args: (datatype, datayear='2020', combined_traindata=False)
-    # datayear: 2020 or 2021;
-    traindata, devdata, testdata = get_data(args.datatype, args.datayear, combined_traindata=False)
+    traindata, devdata, testdata = util.get_data(args.datatype, args.datayear, combined_traindata=False)
     # Comment out the below if preprocessing not needed
-    traindata = preprocess_pandas(traindata, list(traindata.columns))
-    valdata = preprocess_pandas(devdata, list(devdata.columns))
-    test_data = preprocess_pandas(testdata, list(testdata.columns))
+    traindata = util.preprocess_pandas(traindata, list(traindata.columns))
+    valdata = util.preprocess_pandas(devdata, list(devdata.columns))
+    if args.datatype == 'hasoc': # not args.datatype == 'trol' or not args.datatype == 'sema' or not args.datatype == 'semb':                                         # skip line below for trol, 
+        test_data = util.preprocess_pandas(testdata, list(testdata.columns))
 
-    #Add task prefix for T5 better performance
-    traindata['text'] = args.task_pref + traindata['text']
-    valdata['text'] = args.task_pref + valdata['text']
-    test_data['text'] = args.task_pref + test_data['text']
+    ### Text column
+    # Add task prefix for T5 better performance
+    if args.datatype == 'hasoc':
+        traindata['text'] = args.task_pref + traindata['text']
+        valdata['text'] = args.task_pref + valdata['text']
+        test_data['text'] = args.task_pref + test_data['text']
+        train_data = traindata['text'].values.tolist()
+        val_data = valdata['text'].values.tolist()
+        if not args.datayear == '2021':                                         # skip line below for 2021, 
+            test_data_texts = test_data['text'].values.tolist()
+    elif args.datatype == 'trol':
+        traindata['Text'] = args.task_pref + traindata['Text']
+        valdata['Text'] = args.task_pref + valdata['Text']
+        train_data = traindata['Text'].values.tolist()
+        val_data = valdata['Text'].values.tolist()
+    elif args.datatype == 'hos' or args.datatype == 'olid':
+        traindata['tweet'] = args.task_pref + traindata['tweet']
+        valdata['tweet'] = args.task_pref + valdata['tweet']
+        train_data = traindata['tweet'].values.tolist()
+        val_data = valdata['tweet'].values.tolist()
+    else:                                                               # for sema, semb
+        traindata['text'] = args.task_pref + traindata['text']
+        valdata['text'] = args.task_pref + valdata['text']
+        train_data = traindata['text'].values.tolist()
+        val_data = valdata['text'].values.tolist()
 
-    train_data = traindata['text'].values.tolist()
-    val_data = valdata['text'].values.tolist()
-    test_data_texts = test_data['text'].values.tolist()
-
+    ### Label column
     outfile = ''
     label_dict = {}         # For associating raw labels with indices/nos
     if args.datatype == 'hasoc' and args.taskno == '1':
@@ -256,11 +208,11 @@ if __name__ == '__main__':
         for index, possible_label in enumerate(possible_labels):
             label_dict[possible_label] = index
         print(label_dict)       # NOT: 0; HOF: 1
-
         traindata['task_1'] = traindata.task_1.replace(label_dict)                 # replace labels with their nos
         traindata['task_1'] = traindata['task_1'].apply(str)  # string conversion
         valdata['task_1'] = valdata.task_1.replace(label_dict)                 # replace labels with their nos
         valdata['task_1'] = valdata['task_1'].apply(str)  # string conversion
+        print("Trainset distribution: \n", traindata['task_1'].value_counts())                           # check data distribution
         if args.datatype == 'hasoc' and not args.datayear == '2021':            # we'll do 2021 inference on testset elsewhere
             test_data['task_1'] = test_data.task_1.replace(label_dict)                 # replace labels with their nos
             test_data['task_1'] = test_data['task_1'].apply(str)  # string conversion
@@ -280,6 +232,7 @@ if __name__ == '__main__':
         traindata['task_2'] = traindata['task_2'].apply(str)  # string conversion
         valdata['task_2'] = valdata.task_2.replace(label_dict)                 # replace labels with their nos
         valdata['task_2'] = valdata['task_2'].apply(str)  # string conversion
+        print("Trainset distribution: \n", traindata['task_2'].value_counts())                           # check data distribution
         if args.datatype == 'hasoc' and not args.datayear == '2021':            # we'll do 2021 inference on testset elsewhere
             test_data['task_2'] = test_data.task_2.replace(label_dict)                 # replace labels with their nos
             test_data['task_2'] = test_data['task_2'].apply(str)  # string conversion
@@ -288,6 +241,75 @@ if __name__ == '__main__':
         train_tags = traindata['task_2'].values.tolist()
         val_tags = valdata['task_2'].values.tolist()
         outfile = args.ofile2 + 'task2_'
+    elif args.datatype == 'trol':
+        possible_labels = traindata['Sub-task A'].unique()
+        for index, possible_label in enumerate(possible_labels):
+            label_dict[possible_label] = index
+        print(label_dict)       # for sanity check {'NAG': 0, 'CAG': 1, 'OAG': 2}
+        traindata['Sub-task A'] = traindata['Sub-task A'].replace(label_dict)                 # replace labels with their nos
+        traindata['Sub-task A'] = traindata['Sub-task A'].apply(str)  # string conversion
+        valdata['Sub-task A'] = valdata['Sub-task A'].replace(label_dict)                 # replace labels with their nos
+        valdata['Sub-task A'] = valdata['Sub-task A'].apply(str)  # string conversion
+        print("Trainset distribution: \n", traindata['Sub-task A'].value_counts())                           # check data distribution
+        train_tags = traindata['Sub-task A'].values.tolist()
+        val_tags = valdata['Sub-task A'].values.tolist()
+        outfile = args.ofile2 + 'trol_'
+    elif args.datatype == 'hos':
+        traindata['hate_speech'] = traindata['hate_speech'].apply(str)  # string conversion
+        valdata['hate_speech'] = valdata['hate_speech'].apply(str)  # string conversion
+        print("Trainset distribution: \n", traindata['hate_speech'].value_counts())                           # check data distribution
+        train_tags = traindata['hate_speech'].values.tolist()
+        val_tags = valdata['hate_speech'].values.tolist()
+        outfile = args.ofile2 + 'hos_'
+    elif args.datatype == 'sema' or args.datatype == 'semb':
+        # labels are already numeric
+        traindata['HS'] = traindata['HS'].apply(str)  # string conversion
+        valdata['HS'] = valdata['HS'].apply(str)  # string conversion
+        print("Trainset distribution: \n", traindata['HS'].value_counts())                           # check data distribution
+        train_tags = traindata['HS'].values.tolist()
+        val_tags = valdata['HS'].values.tolist()
+        outfile = args.ofile2 + 'sem_'
+    elif args.datatype == 'olid':
+        if args.olidtask == 'a':
+            possible_labels = traindata['subtask_a'].unique()
+            for index, possible_label in enumerate(possible_labels):
+                label_dict[possible_label] = index
+            print(label_dict)       # for sanity check 
+            traindata['subtask_a'] = traindata['subtask_a'].replace(label_dict)                 # replace labels with their nos
+            traindata['subtask_a'] = traindata['subtask_a'].apply(str)  # string conversion
+            valdata['subtask_a'] = valdata['subtask_a'].replace(label_dict)                 # replace labels with their nos
+            valdata['subtask_a'] = valdata['subtask_a'].apply(str)  # string conversion
+            print("Trainset distribution: \n", traindata['subtask_a'].value_counts())                           # check data distribution
+            train_tags = traindata['subtask_a'].values.tolist()
+            val_tags = valdata['subtask_a'].values.tolist()
+            outfile = args.ofile2 + 'olida_'
+        elif args.olidtask == 'b':
+            possible_labels = traindata['subtask_b'].unique()
+            for index, possible_label in enumerate(possible_labels):
+                label_dict[possible_label] = index
+            print(label_dict)       # for sanity check 
+            traindata['subtask_b'] = traindata['subtask_b'].replace(label_dict)                 # replace labels with their nos
+            traindata['subtask_b'] = traindata['subtask_b'].apply(str)  # string conversion
+            valdata['subtask_b'] = valdata['subtask_b'].replace(label_dict)                 # replace labels with their nos
+            valdata['subtask_b'] = valdata['subtask_b'].apply(str)  # string conversion
+            print("Trainset distribution: \n", traindata['subtask_b'].value_counts())                           # check data distribution
+            train_tags = traindata['subtask_b'].values.tolist()
+            val_tags = valdata['subtask_b'].values.tolist()
+            outfile = args.ofile2 + 'olidb_'
+        else:
+            possible_labels = traindata['subtask_c'].unique()
+            for index, possible_label in enumerate(possible_labels):
+                label_dict[possible_label] = index
+            print(label_dict)       # for sanity check 
+            traindata['subtask_c'] = traindata['subtask_c'].replace(label_dict)                 # replace labels with their nos
+            traindata['subtask_c'] = traindata['subtask_c'].apply(str)  # string conversion
+            valdata['subtask_c'] = valdata['subtask_c'].replace(label_dict)                 # replace labels with their nos
+            valdata['subtask_c'] = valdata['subtask_c'].apply(str)  # string conversion
+            print("Trainset distribution: \n", traindata['subtask_c'].value_counts())                           # check data distribution
+            train_tags = traindata['subtask_c'].values.tolist()
+            val_tags = valdata['subtask_c'].values.tolist()
+            outfile = args.ofile2 + 'olidc_'
+
 
     scheduler = get_linear_schedule_with_warmup(optimizer, 
                                             num_warmup_steps=0,
@@ -306,8 +328,8 @@ if __name__ == '__main__':
         print('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}') # metric_sc['f1']))        
         with open(outfile + 't5base.txt', "a+") as f:
             s = f.write('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}' + "\n")
-        if not best_val_wf1 or val_f1_w > best_val_wf1:
-        #if not best_loss or val_loss < best_loss:
+        #if not best_val_wf1 or val_f1_w > best_val_wf1:
+        if not best_loss or val_loss < best_loss:
             with open(args.savet, 'wb') as f:        # create file but deletes implicitly 1st if already exists
                 #No need to save the models for now so that they don't use up space 
                 #torch.save(model.state_dict(), f)    # save best model's learned parameters (based on lowest loss)
@@ -319,11 +341,11 @@ if __name__ == '__main__':
 
             #with open(args.pikle, 'wb') as file:    # save the classifier as a pickle file
                 #pickle.dump(model, file)
-            best_val_wf1 = val_f1_w
-            #best_loss = val_loss
+            #best_val_wf1 = val_f1_w
+            best_loss = val_loss
     
-    # Hasoc 2021 test set will be run according to Hasoc format in order to prepare, so...
-    if args.datatype == 'hasoc' and not args.datayear == '2021':
+    # Hasoc 2021 & OLID test sets will be run according to Hasoc format in order to prepare, so...
+    if args.datatype == 'hasoc' and args.datayear == '2020':
         model = best_model
         eval_loss, predictions, true_vals = evaluate(test_data_texts, test_data_labels) # test_ids added for Hasoc submission
         eval_f1, eval_f1_w, eval_f1_mic = f1_score_func(predictions, true_vals)
