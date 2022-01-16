@@ -25,7 +25,7 @@ to equality e.g. traindata = "english_dataset/english_dataset.tsv" and then remo
 parser = argparse.ArgumentParser(description='Hate Speech Model')
 # --datatype: hasoc, trol, sema, semb, hos, olid (--olidtask = a, b or c)
 # USAGE EXAMPLE in the terminal: python ht5.py --datatype trol
-parser.add_argument('--datatype', type=str, default='hasoc', help='data of choice')
+parser.add_argument('--datatype', type=str, default='olid', help='data of choice')
 parser.add_argument('--has19_traindata', type=str, default='/home/shared_data/h/has19_traindata.csv', help='location of the training data')
 parser.add_argument('--has19_devdata', type=str, default='/home/shared_data/h/has19_devdata.csv', help='location of the dev data')
 parser.add_argument('--has19_testdata', type=str, default='/home/shared_data/h/has19_testdata.csv', help='location of the test data')
@@ -38,21 +38,27 @@ parser.add_argument('--has21_testdata', type=str, default='/home/shared_data/h/h
 # Trolling & Aggression
 parser.add_argument('--trol_traindata', type=str, default='/home/shared_data/h/eng_trolling_agression/trac2_eng_train.csv', help='location of the training data')
 parser.add_argument('--trol_devdata', type=str, default='/home/shared_data/h/eng_trolling_agression/trac2_eng_dev.csv', help='location of the dev data')
-
 parser.add_argument('--task_pref', type=str, default="classification: ", help='Task prefix')
 parser.add_argument('--datayear', type=str, default="2021", help='Data year')           # 2020 or 2021
-parser.add_argument('--taskno', type=str, default="1", help='Task Number')              # 1 or 2
-parser.add_argument('--olidtask', type=str, default="a", help='Task Alphabet')      # a, b or c
-parser.add_argument('--savet', type=str, default='modelt5base_hasoc_task1a.pt', help='filename of the model checkpoint')
-parser.add_argument('--pikle', type=str, default='modelt5base_hasoc_task1a.pkl', help='pickle filename of the model checkpoint')
-parser.add_argument('--msave', type=str, default='t5basemodel_save/', help='folder to save the finetuned model')
+parser.add_argument('--taskno', type=str, default="2", help='Task Number')              # 1 or 2
+parser.add_argument('--olidtask', type=str, default="c", help='Task Alphabet')      # a, b or c
+parser.add_argument('--savet', type=str, default='t5base_model.pt', help='filename of the model checkpoint')
+parser.add_argument('--pikle', type=str, default='t5base_model.pkl', help='pickle filename of the model checkpoint')
+parser.add_argument('--msave', type=str, default='t5base_model', help='folder to save the finetuned model')
 parser.add_argument('--ofile1', type=str, default='outputfile_', help='output file')
 parser.add_argument('--ofile2', type=str, default='outputfile_', help='output file')
-parser.add_argument('--submission1', type=str, default='submitfile_task1a.csv', help='submission file')
 parser.add_argument('--seed', type=int, default=1111, help='random seed')
-parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate') # bestloss at 0.0002; dpred- 1; weighted F1: 0.9386351943374753, micro F1: 0.9376623376623376; test #weighted F1: 0.8210865645981863, micro F1: 0.8227946916471507
-# task_pref: classification
-# bestloss at 0.0002; Validation Loss: 0.1557 weighted F1: 0.9589171159419094, micro F1: 0.958441558441558; test: F1: [0.87049083 0.74856487], weighted F1: 0.824518748338588, micro F1: 0.8290398126463701
+parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate')
+# task_pref: classification; bestloss at 0.0002 LR
+# Validation Loss: 0.1557 weighted F1: 0.9589171159419094, micro F1: 0.958441558441558; test: F1: [0.87028302 0.74595843], weighted F1: 0.8234065343752254, micro F1: 0.8282591725214676
+# Aug_drop
+#    F1: [0.86432749 0.72769953], weighted F1: 0.8128120269888915, micro F1: 0.8188914910226386
+# Aug_gen
+# Validation Loss: 0.1340 F1: [0.93162393 0.89403974], weighted F1: 0.9184450575179053, micro F1: 0.9168831168831169; test: F1: [0.86882245 0.76706392], weighted F1: 0.8304544821151337, micro F1: 0.8321623731459797
+# Both
+# Validation Loss: 0.1876 F1: [0.93162393 0.89403974], weighted F1: 0.9184450575179053, micro F1: 0.9168831168831169; test: F1: [0.85125    0.75259875], weighted F1: 0.8140536280290379, micro F1: 0.8142076502732241
+# t5small: batch_size 64; bestloss at 0.0002 LR; 
+# Validation Loss: 0.1485 weighted F1: 0.9108856945980162, micro F1: 0.909090909090909; test: F1: [0.84311377 0.70627803], weighted F1: 0.7915199667561884, micro F1: 0.795472287275566
 parser.add_argument('--epochs', type=int, default=6, help='upper epoch limit')
 parser.add_argument('--batch_size', type=int, default=16, metavar='N', help='batch size') # smaller batch size for big model to fit GPU
 args = parser.parse_args()
@@ -60,8 +66,7 @@ args = parser.parse_args()
 
 def f1_score_func(preds, labels):
     preds_flat = []
-    preds_flat_ = ['1' if a == '' or len(a) > 1 else a for a in preds]   # get rid of empty & lengthy predictions
-    preds_flat.extend(preds_flat_)
+    preds_flat = ['1' if a == '' or len(a) > 1 else a for a in preds]   # get rid of empty & lengthy predictions
     labels_flat = labels            # only for consistency
     return f1_score(labels_flat, preds_flat, average=None), f1_score(labels_flat, preds_flat, average="weighted"), f1_score(labels_flat, preds_flat, average="micro")
 
@@ -164,10 +169,14 @@ if __name__ == '__main__':
 
     model = T5ForConditionalGeneration.from_pretrained("t5-base").to(device)
     tokenizer = T5Tokenizer.from_pretrained("t5-base")
+    # model = T5ForConditionalGeneration.from_pretrained("t5-small").to(device)
+    # tokenizer = T5Tokenizer.from_pretrained("t5-small")
+
     tokenizer.pad_token = tokenizer.eos_token # to avoid an error
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) #, betas=(0.7, 0.99))
     
-    traindata, devdata, testdata = util.get_data(args.datatype, args.datayear, combined_traindata=False)
+    traindata, devdata, testdata = util.get_data(args.datatype, args.datayear, augment_traindata=False)
+    #print(traindata['task_1'].value_counts())
     # Comment out the below if preprocessing not needed
     traindata = util.preprocess_pandas(traindata, list(traindata.columns))
     valdata = util.preprocess_pandas(devdata, list(devdata.columns))
@@ -180,6 +189,7 @@ if __name__ == '__main__':
         traindata['text'] = args.task_pref + traindata['text']
         valdata['text'] = args.task_pref + valdata['text']
         test_data['text'] = args.task_pref + test_data['text']
+        traindata['text'] = traindata['text'].apply(str)                # force string conversion for error after augmenting
         train_data = traindata['text'].values.tolist()
         val_data = valdata['text'].values.tolist()
         if not args.datayear == '2021':                                         # skip line below for 2021, 
@@ -207,7 +217,7 @@ if __name__ == '__main__':
         possible_labels = traindata.task_1.unique()
         for index, possible_label in enumerate(possible_labels):
             label_dict[possible_label] = index
-        print(label_dict)       # NOT: 0; HOF: 1
+        print(label_dict)
         traindata['task_1'] = traindata.task_1.replace(label_dict)                 # replace labels with their nos
         traindata['task_1'] = traindata['task_1'].apply(str)  # string conversion
         valdata['task_1'] = valdata.task_1.replace(label_dict)                 # replace labels with their nos
@@ -274,7 +284,7 @@ if __name__ == '__main__':
             possible_labels = traindata['subtask_a'].unique()
             for index, possible_label in enumerate(possible_labels):
                 label_dict[possible_label] = index
-            print(label_dict)       # for sanity check 
+            print(label_dict)       # for sanity check {'NOT': 0, 'OFF': 1}
             traindata['subtask_a'] = traindata['subtask_a'].replace(label_dict)                 # replace labels with their nos
             traindata['subtask_a'] = traindata['subtask_a'].apply(str)  # string conversion
             valdata['subtask_a'] = valdata['subtask_a'].replace(label_dict)                 # replace labels with their nos
@@ -287,7 +297,7 @@ if __name__ == '__main__':
             possible_labels = traindata['subtask_b'].unique()
             for index, possible_label in enumerate(possible_labels):
                 label_dict[possible_label] = index
-            print(label_dict)       # for sanity check 
+            print(label_dict)       # for sanity check {'TIN': 0, 'UNT': 1}
             traindata['subtask_b'] = traindata['subtask_b'].replace(label_dict)                 # replace labels with their nos
             traindata['subtask_b'] = traindata['subtask_b'].apply(str)  # string conversion
             valdata['subtask_b'] = valdata['subtask_b'].replace(label_dict)                 # replace labels with their nos
@@ -300,7 +310,7 @@ if __name__ == '__main__':
             possible_labels = traindata['subtask_c'].unique()
             for index, possible_label in enumerate(possible_labels):
                 label_dict[possible_label] = index
-            print(label_dict)       # for sanity check 
+            print(label_dict)       # for sanity check {'GRP': 0, 'IND': 1, 'OTH': 2}
             traindata['subtask_c'] = traindata['subtask_c'].replace(label_dict)                 # replace labels with their nos
             traindata['subtask_c'] = traindata['subtask_c'].apply(str)  # string conversion
             valdata['subtask_c'] = valdata['subtask_c'].replace(label_dict)                 # replace labels with their nos
@@ -335,6 +345,14 @@ if __name__ == '__main__':
                 #torch.save(model.state_dict(), f)    # save best model's learned parameters (based on lowest loss)
                 best_model = model
                 if args.datatype == 'hasoc' and args.datayear == '2021':     # save model for hasoc 2021 inference
+                    if args.taskno == '2': args.msave = args.msave + '_t2'
+                    model_to_save = model.module if hasattr(model, 'module') else model
+                    model_to_save.save_pretrained(args.msave)  # transformers save
+                    tokenizer.save_pretrained(args.msave)
+                elif args.datatype == 'olid':     # save model for inference
+                    if args.olidtask == 'a': args.msave = args.msave + '_olid_a'
+                    elif args.olidtask == 'b': args.msave = args.msave + '_olid_b'
+                    else: args.msave = args.msave + '_olid_c2'
                     model_to_save = model.module if hasattr(model, 'module') else model
                     model_to_save.save_pretrained(args.msave)  # transformers save
                     tokenizer.save_pretrained(args.msave)
