@@ -163,5 +163,4 @@ def preprocess_pandas(data, columns):
         df_['text'] = data['text'].replace('\d', '', regex=True)                                                   # remove numbers
         df_.drop_duplicates(subset=['text'], keep='first')
         df_ = df_.dropna()
-
     return df_
