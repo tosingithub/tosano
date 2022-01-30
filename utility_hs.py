@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 parser = argparse.ArgumentParser(description='Hate Speech')
 # --datatype: hasoc, trol, sema, semb, hos, olid (--olidtask = a, b or c)
 # USAGE EXAMPLE in the terminal: python ht5.py --datatype trol
-parser.add_argument('--datatype', type=str, default='olid', help='data of choice')
+parser.add_argument('--datatype', type=str, default='hasoc', help='data of choice')
 parser.add_argument('--has19_traindata', type=str, default='/home/shared_data/h/has19_traindata.csv', help='location of the training data')
 parser.add_argument('--has19_devdata', type=str, default='/home/shared_data/h/has19_devdata.csv', help='location of the dev data')
 parser.add_argument('--has19_testdata', type=str, default='/home/shared_data/h/has19_testdata.csv', help='location of the test data')

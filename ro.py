@@ -7,7 +7,6 @@ from sklearn.model_selection import train_test_split
 #import transformers
 from tqdm.auto import tqdm
 from torch.utils.data import Dataset, DataLoader, TensorDataset,  RandomSampler, SequentialSampler
-#from transformers import RobertaModel, RobertaTokenizer
 import logging
 import argparse
 import pickle
@@ -18,20 +17,24 @@ from transformers import RobertaTokenizer, RobertaForSequenceClassification, Ada
 
 
 parser = argparse.ArgumentParser(description='Hate Speech Model')
+# --datatype: hasoc, trol, sema, semb, hos, olid (--olidtask = a, b or c)
+# USAGE EXAMPLE in the terminal: python ht5.py --datatype trol
 parser.add_argument('--datatype', type=str, default='hasoc', help='data of choice')
-parser.add_argument('--olidtask', type=str, default="a", help='Task Alphabet')      # a, b or c
+parser.add_argument('--olidtask', type=str, default="b", help='Task Alphabet')      # a, b or c
 
 parser.add_argument('--datayear', type=str, default="2021", help='Data year')
 parser.add_argument('--taskno', type=str, default="1", help='Task Number')
-parser.add_argument('--savet', type=str, default='modelrobertabase_hasoc_task1a.pt', help='filename of the model checkpoint')
-parser.add_argument('--pikle', type=str, default='modelrobertabase_hasoc_task1a.pkl', help='pickle filename of the model checkpoint')
-parser.add_argument('--msave', type=str, default='robasemodel_save/', help='folder to save the finetuned model')
+parser.add_argument('--savet', type=str, default='robase.pt', help='filename of the model checkpoint')
+parser.add_argument('--pikle', type=str, default='robase.pkl', help='pickle filename of the model checkpoint')
+parser.add_argument('--msave', type=str, default='robase', help='folder to save the finetuned model')
 parser.add_argument('--ofile1', type=str, default='outputfile_', help='output file')
 parser.add_argument('--ofile2', type=str, default='outputfile_', help='output file')
 parser.add_argument('--submission1', type=str, default='rosubmitfile_task1a.csv', help='submission file')
 parser.add_argument('--seed', type=int, default=1111, help='random seed')
-parser.add_argument('--lr', type=float, default=0.00001, help='initial learning rate') #
-parser.add_argument('--epochs', type=int, default=1, help='upper epoch limit')
+parser.add_argument('--lr', type=float, default=0.00001, help='initial learning rate')
+# bestloss at 0.0002; F1: [0.82906977 0.65083135], weighted F1: 0.7618651197202165, micro F1: 0.7704918032786885
+
+parser.add_argument('--epochs', type=int, default=3, help='upper epoch limit')
 parser.add_argument('--batch_size', type=int, default=32, metavar='N', help='batch size') # smaller batch size for big model to fit GPU
 parser.add_argument('--maxlen', type=int, default=256, help='maximum length')
 args = parser.parse_args()
@@ -40,7 +43,7 @@ args = parser.parse_args()
 def f1_score_func(preds, labels):
     preds_flat = np.argmax(preds, axis=1).flatten()
     labels_flat = labels.flatten()
-    return f1_score(labels_flat, preds_flat, average=None), f1_score(labels_flat, preds_flat, average="weighted"), f1_score(labels_flat, preds_flat, average="micro")
+    return f1_score(labels_flat, preds_flat, average=None), f1_score(labels_flat, preds_flat, average="weighted"), f1_score(labels_flat, preds_flat, average="macro")
 
 def accuracy_score_func(preds, labels):
     preds_flat = np.argmax(preds, axis=1).flatten()
@@ -63,7 +66,9 @@ def train(dataloader_train):
         batch = tuple(b.to(device) for b in batch)
         inputs = {'input_ids': batch[0], 'attention_mask': batch[1], 'labels': batch[2],}       
         outputs = model(**inputs)
-        loss = outputs[0]
+        loss = outputs[0] # loss_fn(outputs, batch[2]) #
+        #print("Loss ", loss)
+        #print("Loss item ", loss.item())
         loss_train_total += loss.item()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -102,8 +107,9 @@ def evaluate(dataloader_val):
 
 if __name__=="__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # loss_fn = torch.nn.CrossEntropyLoss()
 
-    traindata, devdata, testdata = util.get_data(args.datatype, args.datayear, combined_traindata=False)
+    traindata, devdata, testdata = util.get_data(args.datatype, args.datayear, augment_traindata=False)
     # Comment out the below if preprocessing not needed
     traindata = util.preprocess_pandas(traindata, list(traindata.columns))
     valdata = util.preprocess_pandas(devdata, list(devdata.columns))
@@ -123,7 +129,6 @@ if __name__=="__main__":
         if args.datatype == 'hasoc' and not args.datayear == '2021':            # we'll do 2021 inference on testset elsewhere
             test_data['task_1'] = test_data.task_1.replace(label_dict)                 # replace labels with their nos
         outfile = args.ofile1 + 'task1_robert_'
-
     elif args.datatype == 'hasoc' and args.taskno == '2':
         possible_labels = traindata.task_2.unique()
         for index, possible_label in enumerate(possible_labels):
@@ -198,15 +203,15 @@ if __name__=="__main__":
                 labels_train = torch.tensor(traindata.task_1.values)
                 labels_val = torch.tensor(valdata.task_1.values)
             else:
-                labels_train = torch.tensor(traindata.task_2.values)
-                labels_val = torch.tensor(valdata.task_2.values)
+                labels_train = torch.tensor(traindata.task_2.values, dtype=torch.float)
+                labels_val = torch.tensor(valdata.task_2.values, dtype=torch.float)
         else:
             if args.taskno == '1':
                 labels_train = torch.tensor(traindata.task_1.values)
                 labels_val = torch.tensor(valdata.task_1.values)
             else:
-                labels_train = torch.tensor(traindata.task_2.values)
-                labels_val = torch.tensor(valdata.task_2.values)
+                labels_train = torch.tensor(traindata.task_2.values, dtype=torch.float)
+                labels_val = torch.tensor(valdata.task_2.values, dtype=torch.float)
     elif args.datatype == 'trol':
         encoded_data_train = tokenizer.batch_encode_plus(traindata.Text.values, add_special_tokens=True, return_attention_mask=True, padding=True, truncation=True, return_tensors='pt')
         encoded_data_val = tokenizer.batch_encode_plus(valdata.Text.values, add_special_tokens=True, return_attention_mask=True, padding=True, truncation=True, return_tensors='pt')
@@ -232,8 +237,8 @@ if __name__=="__main__":
             labels_train = torch.tensor(traindata['subtask_b'].values)
             labels_val = torch.tensor(valdata['subtask_b'].values)
         else:
-            labels_train = torch.tensor(traindata['subtask_c'].values)
-            labels_val = torch.tensor(valdata['subtask_c'].values)
+            labels_train = torch.tensor(traindata['subtask_c'].values, dtype=torch.float)
+            labels_val = torch.tensor(valdata['subtask_c'].values, dtype=torch.float)
     
     input_ids_train = encoded_data_train['input_ids'].to(device)
     attention_masks_train = encoded_data_train['attention_mask'].to(device)
@@ -249,8 +254,7 @@ if __name__=="__main__":
     dataloader_train = DataLoader(dataset_train, sampler=RandomSampler(dataset_train), batch_size=args.batch_size)
     dataloader_validation = DataLoader(dataset_val, sampler=SequentialSampler(dataset_val), batch_size=args.batch_size)
 
-
-    optimizer = AdamW(model.parameters(), lr=1e-5, eps=1e-8)
+    optimizer = AdamW(model.parameters(), lr=args.lr, eps=1e-8)
     scheduler = get_linear_schedule_with_warmup(optimizer, 
                                             num_warmup_steps=0,
                                             num_training_steps=len(dataloader_train)*args.epochs)
@@ -262,17 +266,25 @@ if __name__=="__main__":
         epoch_start_time = time.time()
         train_loss = train(dataloader_train)
         val_loss, predictions, true_vals = evaluate(dataloader_validation)
-        val_f1, val_f1_w, val_f1_mic = f1_score_func(predictions, true_vals)
+        val_f1, val_f1_w, val_f1_mac = f1_score_func(predictions, true_vals)
         epoch_time_elapsed = time.time() - epoch_start_time
-        print('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}')       
+        print('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, macro F1: {val_f1_mac}')       
         with open(args.ofile1 + 'roberta.txt', "a+") as f:
-            s = f.write('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}' + "\n")
+            s = f.write('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, macro F1: {val_f1_mac}' + "\n")
         #if not best_val_wf1 or val_f1_w > best_val_wf1:
         if not best_loss or val_loss < best_loss:
             with open(args.savet, 'wb') as f:           # We do not need to save models for now
                 #torch.save(model.state_dict(), f)    # save best model's learned parameters (based on lowest loss)
                 best_model = model
                 if args.datatype == 'hasoc' and args.datayear == '2021':     # save model for hasoc 2021 inference
+                    if args.taskno == '2': args.msave = args.msave + '_t2'
+                    model_to_save = model.module if hasattr(model, 'module') else model
+                    model_to_save.save_pretrained(args.msave)  # transformers save
+                    tokenizer.save_pretrained(args.msave)
+                elif args.datatype == 'olid':     # save model for inference
+                    if args.olidtask == 'a': args.msave = args.msave + '_olida'
+                    elif args.olidtask == 'b': args.msave = args.msave + '_olidb'
+                    else: args.msave = args.msave + '_olidc'
                     model_to_save = model.module if hasattr(model, 'module') else model
                     model_to_save.save_pretrained(args.msave)  # transformers save
                     tokenizer.save_pretrained(args.msave)
@@ -286,7 +298,7 @@ if __name__=="__main__":
     if args.datatype == 'hasoc' and args.datayear == '2020':
         model = best_model
         eval_loss, predictions, true_vals = evaluate(dataloader_test) # test_ids added for Hasoc submission
-        eval_f1, eval_f1_w, eval_f1_mic = f1_score_func(predictions, true_vals)
-        print('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, micro F1: {eval_f1_mic}')       
+        eval_f1, eval_f1_w, eval_f1_mac = f1_score_func(predictions, true_vals)
+        print('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, micro F1: {val_f1_mac}')       
         with open(args.ofile1 + 'roberta.txt', "a+") as f:
-            s = f.write('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, micro F1: {eval_f1_mic}' + "\n")
+            s = f.write('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, micro F1: {val_f1_mac}' + "\n")
