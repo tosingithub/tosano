@@ -2,7 +2,7 @@ from transformers import T5ForConditionalGeneration, T5Tokenizer, TrainingArgume
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from datasets import load_dataset, load_metric, list_metrics
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import f1_score, confusion_matrix, accuracy_score
+from sklearn.metrics import f1_score, confusion_matrix, matthews_corrcoef, accuracy_score
 
 from pathlib import Path
 from torch.utils.data import Dataset, DataLoader
@@ -25,7 +25,7 @@ to equality e.g. traindata = "english_dataset/english_dataset.tsv" and then remo
 parser = argparse.ArgumentParser(description='Hate Speech Model')
 # --datatype: hasoc, trol, sema, semb, hos, olid (--olidtask = a, b or c)
 # USAGE EXAMPLE in the terminal: python ht5.py --datatype trol
-parser.add_argument('--datatype', type=str, default='olid', help='data of choice')
+parser.add_argument('--datatype', type=str, default='hasoc', help='data of choice')
 parser.add_argument('--has19_traindata', type=str, default='/home/shared_data/h/has19_traindata.csv', help='location of the training data')
 parser.add_argument('--has19_devdata', type=str, default='/home/shared_data/h/has19_devdata.csv', help='location of the dev data')
 parser.add_argument('--has19_testdata', type=str, default='/home/shared_data/h/has19_testdata.csv', help='location of the test data')
@@ -40,35 +40,25 @@ parser.add_argument('--trol_traindata', type=str, default='/home/shared_data/h/e
 parser.add_argument('--trol_devdata', type=str, default='/home/shared_data/h/eng_trolling_agression/trac2_eng_dev.csv', help='location of the dev data')
 parser.add_argument('--task_pref', type=str, default="classification: ", help='Task prefix')
 parser.add_argument('--datayear', type=str, default="2021", help='Data year')           # 2020 or 2021
-parser.add_argument('--taskno', type=str, default="2", help='Task Number')              # 1 or 2
+parser.add_argument('--taskno', type=str, default="1", help='Task Number')              # 1 or 2
 parser.add_argument('--olidtask', type=str, default="c", help='Task Alphabet')      # a, b or c
-parser.add_argument('--savet', type=str, default='t5base_model.pt', help='filename of the model checkpoint')
-parser.add_argument('--pikle', type=str, default='t5base_model.pkl', help='pickle filename of the model checkpoint')
-parser.add_argument('--msave', type=str, default='t5base_model', help='folder to save the finetuned model')
+parser.add_argument('--savet', type=str, default='t5base.pt', help='filename of the model checkpoint')
+parser.add_argument('--pikle', type=str, default='t5base.pkl', help='pickle filename of the model checkpoint')
+parser.add_argument('--msave', type=str, default='t5base', help='folder to save the finetuned model')
 parser.add_argument('--ofile1', type=str, default='outputfile_', help='output file')
 parser.add_argument('--ofile2', type=str, default='outputfile_', help='output file')
 parser.add_argument('--seed', type=int, default=1111, help='random seed')
 parser.add_argument('--lr', type=float, default=0.0002, help='initial learning rate')
-# task_pref: classification; bestloss at 0.0002 LR
-# Validation Loss: 0.1557 weighted F1: 0.9589171159419094, micro F1: 0.958441558441558; test: F1: [0.87028302 0.74595843], weighted F1: 0.8234065343752254, micro F1: 0.8282591725214676
-# Aug_drop
-#    F1: [0.86432749 0.72769953], weighted F1: 0.8128120269888915, micro F1: 0.8188914910226386
-# Aug_gen
-# Validation Loss: 0.1340 F1: [0.93162393 0.89403974], weighted F1: 0.9184450575179053, micro F1: 0.9168831168831169; test: F1: [0.86882245 0.76706392], weighted F1: 0.8304544821151337, micro F1: 0.8321623731459797
-# Both
-# Validation Loss: 0.1876 F1: [0.93162393 0.89403974], weighted F1: 0.9184450575179053, micro F1: 0.9168831168831169; test: F1: [0.85125    0.75259875], weighted F1: 0.8140536280290379, micro F1: 0.8142076502732241
-# t5small: batch_size 64; bestloss at 0.0002 LR; 
-# Validation Loss: 0.1485 weighted F1: 0.9108856945980162, micro F1: 0.909090909090909; test: F1: [0.84311377 0.70627803], weighted F1: 0.7915199667561884, micro F1: 0.795472287275566
-parser.add_argument('--epochs', type=int, default=6, help='upper epoch limit')
+parser.add_argument('--epochs', type=int, default=2, help='upper epoch limit')
 parser.add_argument('--batch_size', type=int, default=16, metavar='N', help='batch size') # smaller batch size for big model to fit GPU
 args = parser.parse_args()
 
 
 def f1_score_func(preds, labels):
     preds_flat = []
-    preds_flat = ['1' if a == '' or len(a) > 1 else a for a in preds]   # get rid of empty & lengthy predictions
+    preds_flat = ['1' if a == '' or len(a) > 1 else a for a in preds]   # TODO: USE LARGEST LABEL; get rid of empty & lengthy predictions
     labels_flat = labels            # only for consistency
-    return f1_score(labels_flat, preds_flat, average=None), f1_score(labels_flat, preds_flat, average="weighted"), f1_score(labels_flat, preds_flat, average="micro")
+    return f1_score(labels_flat, preds_flat, average=None), f1_score(labels_flat, preds_flat, average="weighted"), f1_score(labels_flat, preds_flat, average="macro")
 
 # def accuracy_score_func(preds, labels):
 #     preds_flat = np.argmax(preds, axis=1).flatten()
@@ -173,9 +163,9 @@ if __name__ == '__main__':
     # tokenizer = T5Tokenizer.from_pretrained("t5-small")
 
     tokenizer.pad_token = tokenizer.eos_token # to avoid an error
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr) #, betas=(0.7, 0.99))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr) #, betas=(0.7, 0.99))
     
-    traindata, devdata, testdata = util.get_data(args.datatype, args.datayear, augment_traindata=False)
+    traindata, devdata, testdata = util.get_data(args.datatype, args.datayear, augment_traindata=True)
     #print(traindata['task_1'].value_counts())
     # Comment out the below if preprocessing not needed
     traindata = util.preprocess_pandas(traindata, list(traindata.columns))
@@ -320,11 +310,9 @@ if __name__ == '__main__':
             val_tags = valdata['subtask_c'].values.tolist()
             outfile = args.ofile2 + 'olidc_'
 
-
     scheduler = get_linear_schedule_with_warmup(optimizer, 
                                             num_warmup_steps=0,
                                             num_training_steps=len(train_data)*args.epochs)
-
 
     best_val_wf1 = None
     best_loss = None
@@ -333,11 +321,11 @@ if __name__ == '__main__':
         epoch_start_time = time.time()
         train_loss = train(train_data, train_tags)
         val_loss, predictions, true_vals = evaluate(val_data, val_tags) # val_ids added for Hasoc submission
-        val_f1, val_f1_w, val_f1_mic = f1_score_func(predictions, true_vals)
+        val_f1, val_f1_w, val_f1_mac = f1_score_func(predictions, true_vals)
         epoch_time_elapsed = time.time() - epoch_start_time
-        print('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}') # metric_sc['f1']))        
+        print('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, macro F1: {val_f1_mac}') # metric_sc['f1']))        
         with open(outfile + 't5base.txt', "a+") as f:
-            s = f.write('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, micro F1: {val_f1_mic}' + "\n")
+            s = f.write('Epoch: {}, Training Loss: {:.4f}, Validation Loss: {:.4f} '.format(epoch, train_loss, val_loss) + f'F1: {val_f1}, weighted F1: {val_f1_w}, macro F1: {val_f1_mac}' + "\n")
         #if not best_val_wf1 or val_f1_w > best_val_wf1:
         if not best_loss or val_loss < best_loss:
             with open(args.savet, 'wb') as f:        # create file but deletes implicitly 1st if already exists
@@ -350,9 +338,9 @@ if __name__ == '__main__':
                     model_to_save.save_pretrained(args.msave)  # transformers save
                     tokenizer.save_pretrained(args.msave)
                 elif args.datatype == 'olid':     # save model for inference
-                    if args.olidtask == 'a': args.msave = args.msave + '_olid_a'
-                    elif args.olidtask == 'b': args.msave = args.msave + '_olid_b'
-                    else: args.msave = args.msave + '_olid_c2'
+                    if args.olidtask == 'a': args.msave = args.msave + '_olida'
+                    elif args.olidtask == 'b': args.msave = args.msave + '_olidb'
+                    else: args.msave = args.msave + '_olidc'
                     model_to_save = model.module if hasattr(model, 'module') else model
                     model_to_save.save_pretrained(args.msave)  # transformers save
                     tokenizer.save_pretrained(args.msave)
@@ -366,7 +354,7 @@ if __name__ == '__main__':
     if args.datatype == 'hasoc' and args.datayear == '2020':
         model = best_model
         eval_loss, predictions, true_vals = evaluate(test_data_texts, test_data_labels) # test_ids added for Hasoc submission
-        eval_f1, eval_f1_w, eval_f1_mic = f1_score_func(predictions, true_vals)
-        print('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, micro F1: {eval_f1_mic}')       
+        eval_f1, eval_f1_w, val_f1_mac = f1_score_func(predictions, true_vals)
+        print('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, macro F1: {val_f1_mac}')       
         with open(outfile + 't5base.txt', "a+") as f:
-            s = f.write('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, micro F1: {eval_f1_mic}' + "\n")
+            s = f.write('Test Loss: {:.4f} '.format(eval_loss) + f'F1: {eval_f1}, weighted F1: {eval_f1_w}, macro F1: {val_f1_mac}' + "\n")
