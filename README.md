@@ -42,4 +42,4 @@ Please, cite any of these relevant papers if you use the code.
   year={2022}
 }
 </code></pre>
-![image](https://user-images.githubusercontent.com/42860916/217567442-34703dbb-fc6a-4bc7-b209-7c5e081df208.png)
+
