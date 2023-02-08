@@ -1,5 +1,5 @@
 # 3 projects are covered by this repo:
-###The first two involve T5 and other models to automatic hate speech detection and the 3rd one is T5 for Patronizing and Condescending Language (PCL) Detection - SemEval-2022 Task 4
+## The first two involve T5 and other models to automatic hate speech detection and the 3rd one is T5 for Patronizing and Condescending Language (PCL) Detection - SemEval-2022 Task 4
 
 
 <h4>License:</h4>
